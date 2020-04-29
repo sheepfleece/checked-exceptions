@@ -19,6 +19,7 @@ module Control.Monad.Throw (
   , throws
   , catch
   , catches
+  , catches'
   , ignore
   , ignore'
 ) where
@@ -26,7 +27,7 @@ module Control.Monad.Throw (
 import           Control.Exception      (Exception)
 import qualified Control.Exception      as E
 import           Control.Monad.IO.Class
-import           Data.Kind              (Type)
+import           Data.Kind
 import           GHC.TypeLits
 
 {- |
@@ -118,20 +119,43 @@ Catch all exceptions inside a computation.
 
 > action :: Throws '[ ArithException, ArrayException ] IO ()
 > catches action (Handler f1 :&&: Handler f2 :&&: Nil)
-
-Again, notice that the order is important:
-
-> catches action (Handler f2 :&&: Handler f1 :&&: Nil) -- does not compile
+> catches action (Handler f2 :&&: Handler f1 :&&: Nil) -- also compilers
 -}
-catches :: (MonadThrow t m, Monad m) => t es m a -> Handlers es a -> IO a
+catches :: (MonadThrow t m, Monad m, Covers es hs) => t es m a -> Handlers hs a -> IO a
 catches t hs = E.catches (stripIO t) (strip' hs)
+
+{- |
+The same as 'catches', but allows to add handlers for non-specified exceptions.
+-}
+catches' :: (MonadThrow t m, Monad m, Covers' es hs) => t es m a -> Handlers hs a -> IO a
+catches' t  hs = E.catches (stripIO t) (strip' hs)
+
+type family Covers (es :: [k]) (hs :: [k]) :: Constraint where
+  Covers '[] '[] = ()
+  Covers '[] bs  =
+      (TypeError
+        ('Text "Redundant handlers for " ':<>: 'ShowType bs
+         ':<>: 'Text ". Use catches' if it is intentional"))
+  Covers (a ': as) bs =
+    If (Member a bs)
+      (Covers as (Remove a bs))
+      (TypeError
+        ('Text "Not handled exception: " ':<>: 'ShowType a))
+
+-- It would be a pain to factor a pattern out.
+type family Covers' (es :: [k]) (hs :: [k]) :: Constraint where
+  Covers' '[] _ = ()
+  Covers' (a ': as) bs =
+    If (Member a bs)
+      (Covers' as (Remove a bs))
+      (TypeError
+        ('Text "Not handled exception: " ':<>: 'ShowType a))
 
 {- |
 For computations which `throw` only one exception.
 -}
 catch :: (MonadThrow t m, Monad m) => t '[e] m a -> Handler e a -> IO a
 catch t (Handler f) = E.catches (stripIO t) [E.Handler f]
-
 
 strip' :: Handlers es a -> [E.Handler a]
 strip' (Nil)               = []

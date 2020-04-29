@@ -69,6 +69,6 @@ externalAction = do
 safety :: IO ()
 safety = catches
           (ignore @'[ArrayException] action)
-          (hArith :&&: hLovely :&&: hExample :&&: Nil)
+          (hLovely :&&: hExample :&&: hArith :&&: Nil)
 
 
