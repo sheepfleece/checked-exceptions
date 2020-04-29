@@ -28,16 +28,16 @@ instance Exception ExampleException
 instance Exception LovelyException
 
 -- Handlers
-hArith :: Handler ArithException ()
+hArith :: Handler ArithException IO ()
 hArith = Handler (putStrLn . show)
 
-hArray :: Handler ArrayException ()
+hArray :: Handler ArrayException IO ()
 hArray = Handler (putStrLn . show)
 
-hLovely :: Handler LovelyException ()
+hLovely :: Handler LovelyException IO ()
 hLovely = Handler (putStrLn . show)
 
-hExample :: Handler ExampleException ()
+hExample :: Handler ExampleException IO ()
 hExample = Handler (putStrLn . show)
 
 -- Type synonyms, so you shouldn't write the same exceptions all the time
