@@ -21,7 +21,9 @@ library
 
 test-suite checked-exceptions-test
   main-is: Tests.hs
-  other-modules:             Control.Monad.Throw.Tests
+  other-modules:             
+    Control.Monad.Throw.Tests,
+    Simple
   build-depends:       
     base ^>=4.12.0.0,
     checked-exceptions, 
@@ -31,4 +33,4 @@ test-suite checked-exceptions-test
   ghc-options: -Wall -fwarn-tabs -O2
 
   type:                exitcode-stdio-1.0
-  hs-source-dirs:      test
+  hs-source-dirs:      test, examples

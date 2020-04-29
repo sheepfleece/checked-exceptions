@@ -27,7 +27,6 @@ import           Control.Exception      (Exception)
 import qualified Control.Exception      as E
 import           Control.Monad.IO.Class
 import           Data.Kind              (Type)
-import           GHC.Exts
 import           GHC.TypeLits
 
 {- |
