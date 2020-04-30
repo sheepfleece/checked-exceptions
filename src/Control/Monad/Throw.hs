@@ -11,7 +11,12 @@
 {-# LANGUAGE TypeFamilies          #-}
 {-# LANGUAGE TypeOperators         #-}
 {-# LANGUAGE UndecidableInstances  #-}
-
+-- | An example is worth a thousand words:
+--
+-- * https://github.com/sheepfleece/checked-exceptions/blob/master/examples/Simple.hs
+--
+-- * https://github.com/sheepfleece/checked-exceptions/blob/master/examples/Reader.hs
+--
 module Control.Monad.Throw (
     MonadThrow(..)
   , Throws(..)
@@ -25,14 +30,15 @@ module Control.Monad.Throw (
   , ignore'
   , erode
   , erode'
+  , safe
+  , escape
+  , (>!=)
+  , (>!)
+  , cond
+  , result
   , (:++:)
   , (:\\:)
   , (:\\!:)
-  , cond
-  , safe
-  , escape
-  , result
-  , (>!)
 ) where
 
 import           Control.Exception      (Exception)
@@ -44,21 +50,15 @@ import           GHC.TypeLits
 
 import           Control.Monad.Reader
 
--- | The main type class which stores a type level list describing which
+-- | The main typeclass which stores a type level list describing which
 -- exceptions your computation may throw. Sadly, GHC does not provide us
 -- type level sets, so if compiler infers exceptions in the different
 -- order they appear in your type signature you will get an ugly error message.
 -- You can, however, let GHC infer the type and then copy it into your type signature.
 
 class MonadIO m => MonadThrow (t :: [Type] -> (Type -> Type) -> (Type -> Type)) (m :: Type -> Type) where
-  -- | 'inject' into a typeclass with specified list of exceptions.
   inject :: forall (es :: [Type]) a . m a -> t es m a
-  -- | Forget everything.
   strip :: t es m a -> m a
-
-  -- | RebindableSyntax for @(>>=)@.
-  (>!=) :: t es m a -> (a -> t es' m b) -> t (es :++: es') m b
-  t >!= f = inject $ strip t >>= (strip . f)
 
   catch :: Exception e => t '[e] m a -> (e -> m a) -> m a
 
@@ -68,9 +68,22 @@ class MonadIO m => MonadThrow (t :: [Type] -> (Type -> Type) -> (Type -> Type)) 
      => t es m a -> t es' m b -> t (es :++: es') m b
 t >! m = t >!= \_ -> m
 
+-- | RebindableSyntax for @(>>=)@.
+(>!=) :: forall t m a b (es :: [Type]) (es' :: [Type])
+      .  MonadThrow t m
+      => t es m a -> (a -> t es' m b) -> t (es :++: es') m b
+t >!= f = inject $ strip t >>= (strip . f)
+
 -- | RebindableSyntax for @return@.
 result :: (MonadThrow t m) => a -> t '[] m a
 result = inject . pure
+
+-- | RebindableSyntax for @if..then..else@
+cond :: forall t m a (es :: [Type]) (es' :: [Type])
+     .  (MonadThrow t m)
+     => Bool -> t es m a -> t es' m a -> t (es :++: es') m a
+cond True t _  = inject . strip $ t
+cond False _ f = inject . strip $ f
 
 -- | Forget about some exceptions in the computation.
 ignore :: forall (es' :: [Type]) t m a (es :: [Type])
@@ -103,9 +116,10 @@ throws = inject
 throw :: (MonadIO m, Exception e, MonadThrow t m) => e -> t '[e] m a
 throw = inject . liftIO . E.throwIO
 
--- | 'Handler' stores a type of 'Exception' it handles in its type signature, it allows
---  to match a list of provided handlers against a list of exceptions possible
---  inside a computation and throw an error if they do not match.
+-- | 'Handler' stores a type of 'Exception' it handles in its type signature
+-- , it allows to match a list of provided handlers against a list of
+--  exceptions possible inside a computation and throw an error
+--  if they do not match.
 data Handler e m a where
   Handler :: Exception e => (e -> m a) -> Handler e m a
 
@@ -130,7 +144,6 @@ type family Covers (es :: [k]) (hs :: [k]) :: Constraint where
       (TypeError
         ('Text "Not handled exception: " ':<>: 'ShowType a))
 
--- It would be a pain to factor a pattern out.
 type family Covers' (es :: [k]) (hs :: [k]) :: Constraint where
   Covers' '[] _ = ()
   Covers' (a ': as) bs =
@@ -187,7 +200,7 @@ type family If (p :: Bool) (a :: k) (b :: k) :: k where
   If 'False _ b = b
 
 -- | The main type to be used with the `MonadCatch` typeclass
---   `m` can be instantiated to your own Monad, `RIO` as an example.
+--   `m` can be instantiated to your own Monad, RIO as an example.
 newtype Throws (es :: [Type]) (m :: Type -> Type) (a :: Type) where
   Throws :: m a -> Throws es m a
   deriving Functor
@@ -229,7 +242,8 @@ pick (Handler f :&&: hs) e =
     Nothing -> pick hs e
     Just e' -> f e'
 
--- | The same as 'catches', but allows to add handlers for non-specified exceptions.
+-- | The same as 'catches', but allows to add handlers for
+-- non-specified exceptions.
 catches' :: forall t m a (es :: [Type]) (hs :: [Type])
         . (MonadThrow t m, Covers' es hs)
         => t es m a
@@ -246,19 +260,14 @@ erode :: forall t m a (es :: [Type]) (hs :: [Type])
       -> t (es :\\: hs) m a
 erode t hs = inject @t $ (inject @t . strip $ t) `catch` pick hs
 
--- | The same as 'erode`, but allows to add handlers for non-specified exceptions.
+-- | The same as 'erode', but allows to add handlers
+-- for non-specified exceptions.
 erode' :: forall t m a (es :: [Type]) (hs :: [Type])
       .  (MonadThrow t m)
       => t es m a
       -> Handlers hs m a
       -> t (es :\\!: hs) m a
 erode' t hs = inject @t $ (inject @t . strip $ t) `catch` pick hs
-
-cond :: forall t m a (es :: [Type]) (es' :: [Type])
-     .  (MonadThrow t m)
-     => Bool -> t es m a -> t es' m a -> t (es :++: es') m a
-cond True t _  = inject . strip $ t
-cond False _ f = inject . strip $ f
 
 safe :: forall t m a . (MonadThrow t m) => m a -> t '[] m a
 safe = inject

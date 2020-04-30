@@ -71,4 +71,3 @@ safety = catches
           (ignore @'[ArrayException] action)
           (hLovely :&&: hExample :&&: hArith :&&: Nil)
 
-
