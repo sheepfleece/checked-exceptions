@@ -13,8 +13,7 @@
 {-# LANGUAGE UndecidableInstances  #-}
 
 module Control.Monad.Throw (
-    (:++:)
-  , MonadThrow(..)
+    MonadThrow(..)
   , Throws(..)
   , Handler(..)
   , Handlers(..)
@@ -24,6 +23,16 @@ module Control.Monad.Throw (
   , catches'
   , ignore
   , ignore'
+  , erode
+  , erode'
+  , (:++:)
+  , (:\\:)
+  , (:\\!:)
+  , cond
+  , safe
+  , escape
+  , result
+  , (>!)
 ) where
 
 import           Control.Exception      (Exception)
@@ -51,15 +60,17 @@ class MonadIO m => MonadThrow (t :: [Type] -> (Type -> Type) -> (Type -> Type)) 
   (>!=) :: t es m a -> (a -> t es' m b) -> t (es :++: es') m b
   t >!= f = inject $ strip t >>= (strip . f)
 
-  -- | RebindableSyntax for @(>>)@.
-  (>!) :: t es m a -> t es' m b -> t (es :++: es') m b
-  t >! m = t >!= \_ -> m
-
-  -- | RebindableSyntax for @return@.
-  pure1 :: a -> t '[] m a
-  pure1 = inject . pure
-
   catch :: Exception e => t '[e] m a -> (e -> m a) -> m a
+
+-- | RebindableSyntax for @(>>)@.
+(>!) :: forall t m a b (es :: [Type]) (es' :: [Type])
+     .  MonadThrow t m
+     => t es m a -> t es' m b -> t (es :++: es') m b
+t >! m = t >!= \_ -> m
+
+-- | RebindableSyntax for @return@.
+result :: (MonadThrow t m) => a -> t '[] m a
+result = inject . pure
 
 -- | Forget about some exceptions in the computation.
 ignore :: forall (es' :: [Type]) t m a (es :: [Type])
@@ -179,10 +190,7 @@ type family If (p :: Bool) (a :: k) (b :: k) :: k where
 --   `m` can be instantiated to your own Monad, `RIO` as an example.
 newtype Throws (es :: [Type]) (m :: Type -> Type) (a :: Type) where
   Throws :: m a -> Throws es m a
-  deriving (Functor)
-  deriving Applicative via m
-  deriving Monad via m
-  deriving MonadIO via m
+  deriving Functor
 
 instance MonadThrow Throws IO where
   inject = coerce
@@ -206,7 +214,7 @@ instance (MonadIO m, MonadThrow Throws m) => MonadThrow Throws (ReaderT r m) whe
 --
 -- > action :: Throws '[ ArithException, ArrayException ] IO ()
 -- > catches action (Handler f1 :&&: Handler f2 :&&: Nil)
--- > catches action (Handler f2 :&&: Handler f1 :&&: Nil) -- also compilers
+-- > catches action (Handler f2 :&&: Handler f1 :&&: Nil) -- also compiles
 catches :: forall t m a (es :: [Type]) (hs :: [Type])
         . (MonadThrow t m, Covers es hs)
         => t es m a
@@ -228,3 +236,32 @@ catches' :: forall t m a (es :: [Type]) (hs :: [Type])
         -> Handlers hs m a
         -> m a
 catches' t hs = (inject @t . strip $ t) `catch` pick hs
+
+
+-- | Handle some exceptions without leaving the monad.
+erode :: forall t m a (es :: [Type]) (hs :: [Type])
+      .  (MonadThrow t m)
+      => t es m a
+      -> Handlers hs m a
+      -> t (es :\\: hs) m a
+erode t hs = inject @t $ (inject @t . strip $ t) `catch` pick hs
+
+-- | The same as 'erode`, but allows to add handlers for non-specified exceptions.
+erode' :: forall t m a (es :: [Type]) (hs :: [Type])
+      .  (MonadThrow t m)
+      => t es m a
+      -> Handlers hs m a
+      -> t (es :\\!: hs) m a
+erode' t hs = inject @t $ (inject @t . strip $ t) `catch` pick hs
+
+cond :: forall t m a (es :: [Type]) (es' :: [Type])
+     .  (MonadThrow t m)
+     => Bool -> t es m a -> t es' m a -> t (es :++: es') m a
+cond True t _  = inject . strip $ t
+cond False _ f = inject . strip $ f
+
+safe :: forall t m a . (MonadThrow t m) => m a -> t '[] m a
+safe = inject
+
+escape :: forall t m a . (MonadThrow t m) => t '[] m a -> m a
+escape = strip
